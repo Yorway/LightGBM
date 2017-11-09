@@ -17,8 +17,8 @@ public:
   LeafSplits(int num_feature, data_size_t num_data)
     :num_data_in_leaf_(num_data), num_data_(num_data), num_features_(num_feature),
     data_indices_(nullptr) {
+    best_split_per_feature_.resize(num_features_);
     for (int i = 0; i < num_features_; ++i) {
-      best_split_per_feature_.push_back(SplitInfo());
       best_split_per_feature_[i].feature = i;
     }
   }
@@ -26,15 +26,16 @@ public:
   }
 
   /*!
+
   * \brief Init split on current leaf on partial data. 
   * \param leaf Index of current leaf
   * \param data_partition current data partition
   * \param sum_gradients
   * \param sum_hessians
   */
-  void Init(int leaf, const DataPartition* data_partition, score_t sum_gradients, score_t sum_hessians) {
+  void Init(int leaf, const DataPartition* data_partition, double sum_gradients, double sum_hessians) {
     leaf_index_ = leaf;
-    num_data_in_leaf_ = data_partition->GetIndexOnLeaf(leaf, &data_indices_);
+    data_indices_ = data_partition->GetIndexOnLeaf(leaf, &num_data_in_leaf_);
     sum_gradients_ = sum_gradients;
     sum_hessians_ = sum_hessians;
     for (SplitInfo& split_info : best_split_per_feature_) {
@@ -43,16 +44,16 @@ public:
   }
 
   /*!
-  * \brief Init splits on current leaf, it will travese all data to sum up the results
+  * \brief Init splits on current leaf, it will traverse all data to sum up the results
   * \param gradients
   * \param hessians
   */
-  void Init(const score_t* gradients, const score_t *hessians) {
+  void Init(const score_t* gradients, const score_t* hessians) {
     num_data_in_leaf_ = num_data_;
     leaf_index_ = 0;
     data_indices_ = nullptr;
-    score_t tmp_sum_gradients = 0.0;
-    score_t tmp_sum_hessians = 0.0;
+    double tmp_sum_gradients = 0.0f;
+    double tmp_sum_hessians = 0.0f;
 #pragma omp parallel for schedule(static) reduction(+:tmp_sum_gradients, tmp_sum_hessians)
     for (data_size_t i = 0; i < num_data_in_leaf_; ++i) {
       tmp_sum_gradients += gradients[i];
@@ -72,11 +73,11 @@ public:
   * \param gradients
   * \param hessians
   */
-  void Init(int leaf, const DataPartition* data_partition, const score_t* gradients, const score_t *hessians) {
+  void Init(int leaf, const DataPartition* data_partition, const score_t* gradients, const score_t* hessians) {
     leaf_index_ = leaf;
-    num_data_in_leaf_ = data_partition->GetIndexOnLeaf(leaf, &data_indices_);
-    score_t tmp_sum_gradients = 0.0;
-    score_t tmp_sum_hessians = 0.0;
+    data_indices_ = data_partition->GetIndexOnLeaf(leaf, &num_data_in_leaf_);
+    double tmp_sum_gradients = 0.0f;
+    double tmp_sum_hessians = 0.0f;
 #pragma omp parallel for schedule(static) reduction(+:tmp_sum_gradients, tmp_sum_hessians)
     for (data_size_t i = 0; i < num_data_in_leaf_; ++i) {
       data_size_t idx = data_indices_[i];
@@ -96,7 +97,7 @@ public:
   * \param sum_gradients
   * \param sum_hessians
   */
-  void Init(score_t sum_gradients, score_t sum_hessians) {
+  void Init(double sum_gradients, double sum_hessians) {
     leaf_index_ = 0;
     sum_gradients_ = sum_gradients;
     sum_hessians_ = sum_hessians;
@@ -125,13 +126,13 @@ public:
   data_size_t num_data_in_leaf() const { return num_data_in_leaf_; }
 
   /*! \brief Get sum of gradients of current leaf */
-  score_t sum_gradients() const { return sum_gradients_; }
+  double sum_gradients() const { return sum_gradients_; }
   
   /*! \brief Get sum of hessians of current leaf */
-  score_t sum_hessians() const { return sum_hessians_; }
+  double sum_hessians() const { return sum_hessians_; }
 
   /*! \brief Get indices of data of current leaf */
-  data_size_t * data_indices() const { return data_indices_; }
+  const data_size_t* data_indices() const { return data_indices_; }
 
 
 private:
@@ -146,11 +147,11 @@ private:
   /*! \brief number of features */
   int num_features_;
   /*! \brief sum of gradients of current leaf */
-  score_t sum_gradients_;
+  double sum_gradients_;
   /*! \brief sum of hessians of current leaf */
-  score_t sum_hessians_;
+  double sum_hessians_;
   /*! \brief indices of data of current leaf */
-  data_size_t* data_indices_;
+  const data_size_t* data_indices_;
 };
 
 }  // namespace LightGBM

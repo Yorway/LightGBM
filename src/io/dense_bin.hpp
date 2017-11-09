@@ -10,27 +10,20 @@
 namespace LightGBM {
 
 /*!
-* \brief Used to Store bins for dense feature
+* \brief Used to store bins for dense feature
 * Use template to reduce memory cost
 */
 template <typename VAL_T>
 class DenseBin: public Bin {
 public:
-  explicit DenseBin(data_size_t num_data, int default_bin)
+  DenseBin(data_size_t num_data, int default_bin)
     : num_data_(num_data) {
-    data_ = new VAL_T[num_data_];
-    if (default_bin == 0) {
-      std::memset(data_, 0, sizeof(VAL_T)*num_data_);
-    } else {
-      VAL_T default_bin_T = static_cast<VAL_T>(default_bin);
-      for (data_size_t i = 0; i < num_data_; ++i) {
-        data_[i] = default_bin_T;
-      }
-    }
+    data_.resize(num_data_);
+    VAL_T default_bin_T = static_cast<VAL_T>(default_bin);
+    std::fill(data_.begin(), data_.end(), default_bin_T);
   }
 
   ~DenseBin() {
-    delete[] data_;
   }
 
   void Push(int, data_size_t idx, uint32_t value) override {
@@ -43,9 +36,9 @@ public:
 
   BinIterator* GetIterator(data_size_t start_idx) const override;
 
-  void ConstructHistogram(data_size_t* data_indices, data_size_t num_data,
-                          const score_t* ordered_gradients, const score_t* ordered_hessians,
-                          HistogramBinEntry* out) const override {
+  void ConstructHistogram(const data_size_t* data_indices, data_size_t num_data,
+    const score_t* ordered_gradients, const score_t* ordered_hessians,
+    HistogramBinEntry* out) const override {
     // use 4-way unrolling, will be faster
     if (data_indices != nullptr) {  // if use part of data
       data_size_t rest = num_data % 4;
@@ -77,8 +70,7 @@ public:
         out[bin].sum_hessians += ordered_hessians[i];
         ++out[bin].cnt;
       }
-    }
-    else {  // use full data
+    } else {  // use full data
       data_size_t rest = num_data % 4;
       data_size_t i = 0;
       for (; i < num_data - rest; i += 4) {
@@ -111,8 +103,8 @@ public:
     }
   }
 
-  data_size_t Split(unsigned int threshold, data_size_t* data_indices, data_size_t num_data,
-                         data_size_t* lte_indices, data_size_t* gt_indices) const override {
+  virtual data_size_t Split(unsigned int threshold, data_size_t* data_indices, data_size_t num_data,
+    data_size_t* lte_indices, data_size_t* gt_indices) const override {
     data_size_t lte_count = 0;
     data_size_t gt_count = 0;
     for (data_size_t i = 0; i < num_data; ++i) {
@@ -134,7 +126,7 @@ public:
 
   void LoadFromMemory(const void* memory, const std::vector<data_size_t>& local_used_indices) override {
     const VAL_T* mem_data = reinterpret_cast<const VAL_T*>(memory);
-    if (local_used_indices.size() > 0) {
+    if (!local_used_indices.empty()) {
       for (int i = 0; i < num_data_; ++i) {
         data_[i] = mem_data[local_used_indices[i]];
       }
@@ -146,16 +138,16 @@ public:
   }
 
   void SaveBinaryToFile(FILE* file) const override {
-    fwrite(data_, sizeof(VAL_T), num_data_, file);
+    fwrite(data_.data(), sizeof(VAL_T), num_data_, file);
   }
 
   size_t SizesInByte() const override {
     return sizeof(VAL_T) * num_data_;
   }
 
-private:
+protected:
   data_size_t num_data_;
-  VAL_T* data_;
+  std::vector<VAL_T> data_;
 };
 
 template <typename VAL_T>
@@ -175,5 +167,29 @@ template <typename VAL_T>
 BinIterator* DenseBin<VAL_T>::GetIterator(data_size_t) const {
   return new DenseBinIterator<VAL_T>(this);
 }
+
+template <typename VAL_T>
+class DenseCategoricalBin: public DenseBin<VAL_T> {
+public:
+  DenseCategoricalBin(data_size_t num_data, int default_bin)
+    : DenseBin<VAL_T>(num_data, default_bin) {
+  }
+
+  virtual data_size_t Split(unsigned int threshold, data_size_t* data_indices, data_size_t num_data,
+    data_size_t* lte_indices, data_size_t* gt_indices) const override {
+    data_size_t lte_count = 0;
+    data_size_t gt_count = 0;
+    for (data_size_t i = 0; i < num_data; ++i) {
+      data_size_t idx = data_indices[i];
+      if (DenseBin<VAL_T>::data_[idx] != threshold) {
+        gt_indices[gt_count++] = idx;
+      } else {
+        lte_indices[lte_count++] = idx;
+      }
+    }
+    return lte_count;
+  }
+};
+
 }  // namespace LightGBM
 #endif   // LightGBM_IO_DENSE_BIN_HPP_

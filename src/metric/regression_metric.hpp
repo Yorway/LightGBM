@@ -15,18 +15,25 @@ namespace LightGBM {
 template<typename PointWiseLossCalculator>
 class RegressionMetric: public Metric {
 public:
-  explicit RegressionMetric(const MetricConfig& config) {
-    early_stopping_round_ = config.early_stopping_round;
-    output_freq_ = config.output_freq;
-    the_bigger_the_better = false;
+  explicit RegressionMetric(const MetricConfig&) {
+
   }
 
   virtual ~RegressionMetric() {
 
   }
 
-  void Init(const char* test_name, const Metadata& metadata, data_size_t num_data) override {
-    name = test_name;
+  const std::vector<std::string>& GetName() const override {
+    return name_;
+  }
+
+  score_t factor_to_bigger_better() const override {
+    return -1.0f;
+  }
+
+  void Init(const Metadata& metadata, data_size_t num_data) override {
+    name_.emplace_back(PointWiseLossCalculator::Name());
+
     num_data_ = num_data;
     // get label
     label_ = metadata.label();
@@ -41,39 +48,32 @@ public:
       }
     }
   }
-  
-  score_t PrintAndGetLoss(int iter, const score_t* score) const override {
-    if (early_stopping_round_ > 0 || (output_freq_ > 0 && iter % output_freq_ == 0)) {
-      score_t sum_loss = 0.0;
-      if (weights_ == nullptr) {
-        #pragma omp parallel for schedule(static) reduction(+:sum_loss)
-        for (data_size_t i = 0; i < num_data_; ++i) {
-          // add loss
-          sum_loss += PointWiseLossCalculator::LossOnPoint(label_[i], score[i]);
-        }
-      } else {
-        #pragma omp parallel for schedule(static) reduction(+:sum_loss)
-        for (data_size_t i = 0; i < num_data_; ++i) {
-          // add loss
-          sum_loss += PointWiseLossCalculator::LossOnPoint(label_[i], score[i]) * weights_[i];
-        }
+
+  std::vector<double> Eval(const score_t* score) const override {
+    double sum_loss = 0.0f;
+    if (weights_ == nullptr) {
+#pragma omp parallel for schedule(static) reduction(+:sum_loss)
+      for (data_size_t i = 0; i < num_data_; ++i) {
+        // add loss
+        sum_loss += PointWiseLossCalculator::LossOnPoint(label_[i], score[i]);
       }
-      score_t loss = PointWiseLossCalculator::AverageLoss(sum_loss, sum_weights_);
-      if (output_freq_ > 0 && iter % output_freq_ == 0){
-        Log::Stdout("Iteration:%d, %s's %s : %f", iter, name, PointWiseLossCalculator::Name(), loss);
+    } else {
+#pragma omp parallel for schedule(static) reduction(+:sum_loss)
+      for (data_size_t i = 0; i < num_data_; ++i) {
+        // add loss
+        sum_loss += PointWiseLossCalculator::LossOnPoint(label_[i], score[i]) * weights_[i];
       }
-      return loss;
     }
-    return 0.0f;
+    double loss = PointWiseLossCalculator::AverageLoss(sum_loss, sum_weights_);
+    return std::vector<double>(1, loss);
+
   }
 
-  inline static score_t AverageLoss(score_t sum_loss, score_t sum_weights) {
+  inline static double AverageLoss(double sum_loss, double sum_weights) {
     return sum_loss / sum_weights;
   }
 
 private:
-  /*! \brief Output frequently */
-  int output_freq_;
   /*! \brief Number of data */
   data_size_t num_data_;
   /*! \brief Pointer of label */
@@ -83,7 +83,7 @@ private:
   /*! \brief Sum weights */
   double sum_weights_;
   /*! \brief Name of this test set */
-  const char* name;
+  std::vector<std::string> name_;
 };
 
 /*! \brief L2 loss for regression task */
@@ -95,13 +95,13 @@ public:
     return (score - label)*(score - label);
   }
 
-  inline static score_t AverageLoss(score_t sum_loss, score_t sum_weights) {
+  inline static double AverageLoss(double sum_loss, double sum_weights) {
     // need sqrt the result for L2 loss
     return std::sqrt(sum_loss / sum_weights);
   }
 
   inline static const char* Name() {
-    return "l2 loss";
+    return "l2";
   }
 };
 
@@ -114,7 +114,7 @@ public:
     return std::fabs(score - label);
   }
   inline static const char* Name() {
-    return "l1 loss";
+    return "l1";
   }
 };
 

@@ -75,6 +75,9 @@
     <ClInclude Include="..\src\metric\regression_metric.hpp">
       <Filter>src\metric</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\metric\multiclass_metric.hpp">
+      <Filter>src\metric</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\network\socket_wrapper.hpp">
       <Filter>src\network</Filter>
     </ClInclude>
@@ -85,6 +88,9 @@
       <Filter>src\objective</Filter>
     </ClInclude>
     <ClInclude Include="..\src\objective\regression_objective.hpp">
+      <Filter>src\objective</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\objective\multiclass_objective.hpp">
       <Filter>src\objective</Filter>
     </ClInclude>
     <ClInclude Include="..\src\treelearner\data_partition.hpp">
@@ -156,6 +162,15 @@
     <ClInclude Include="..\include\LightGBM\utils\threading.h">
       <Filter>include\LightGBM\utils</Filter>
     </ClInclude>
+    <ClInclude Include="..\include\LightGBM\c_api.h">
+      <Filter>include\LightGBM</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\LightGBM\dataset_loader.h">
+      <Filter>include\LightGBM</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\boosting\dart.hpp">
+      <Filter>src\boosting</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\application\application.cpp">
@@ -220,6 +235,15 @@
     </ClCompile>
     <ClCompile Include="..\src\main.cpp">
       <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\c_api.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\io\dataset_loader.cpp">
+      <Filter>src\io</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\treelearner\voting_parallel_tree_learner.cpp">
+      <Filter>src\treelearner</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

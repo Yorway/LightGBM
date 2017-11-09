@@ -7,7 +7,7 @@
 #include <LightGBM/bin.h>
 
 #include <cstdio>
-
+#include <memory>
 #include <vector>
 
 namespace LightGBM {
@@ -26,8 +26,8 @@ public:
     data_size_t num_data, bool is_enable_sparse)
     :bin_mapper_(bin_mapper) {
     feature_index_ = feature_idx;
-    bin_data_ = Bin::CreateBin(num_data, bin_mapper_->num_bin(),
-      bin_mapper_->sparse_rate(), is_enable_sparse, &is_sparse_, bin_mapper_->ValueToBin(0));
+    bin_data_.reset(Bin::CreateBin(num_data, bin_mapper_->num_bin(),
+      bin_mapper_->sparse_rate(), is_enable_sparse, &is_sparse_, bin_mapper_->GetDefaultBin(), bin_mapper_->bin_type()));
   }
   /*!
   * \brief Constructor from memory
@@ -45,24 +45,29 @@ public:
     is_sparse_ = *(reinterpret_cast<const bool*>(memory_ptr));
     memory_ptr += sizeof(is_sparse_);
     // get bin mapper
-    bin_mapper_ = new BinMapper(memory_ptr);
+    bin_mapper_.reset(new BinMapper(memory_ptr));
     memory_ptr += bin_mapper_->SizesInByte();
     data_size_t num_data = num_all_data;
-    if (local_used_indices.size() > 0) {
+    if (!local_used_indices.empty()) {
       num_data = static_cast<data_size_t>(local_used_indices.size());
     }
     if (is_sparse_) {
-      bin_data_ = Bin::CreateSparseBin(num_data, bin_mapper_->num_bin(), bin_mapper_->ValueToBin(0));
+      bin_data_.reset(Bin::CreateSparseBin(num_data, bin_mapper_->num_bin(), bin_mapper_->GetDefaultBin(), bin_mapper_->bin_type()));
     } else {
-      bin_data_ = Bin::CreateDenseBin(num_data, bin_mapper_->num_bin(), bin_mapper_->ValueToBin(0));
+      bin_data_.reset(Bin::CreateDenseBin(num_data, bin_mapper_->num_bin(), bin_mapper_->GetDefaultBin(), bin_mapper_->bin_type()));
     }
     // get bin data
     bin_data_->LoadFromMemory(memory_ptr, local_used_indices);
   }
   /*! \brief Destructor */
   ~Feature() {
-    delete bin_mapper_;
-    delete bin_data_;
+  }
+
+  bool CheckAlign(const Feature& other) const {
+    if (feature_index_ != other.feature_index_) {
+      return false;
+    }
+    return bin_mapper_->CheckAlign(*(other.bin_mapper_.get()));
   }
 
   /*!
@@ -75,15 +80,20 @@ public:
     unsigned int bin = bin_mapper_->ValueToBin(value);
     bin_data_->Push(tid, line_idx, bin);
   }
+  inline void PushBin(int tid, data_size_t line_idx, unsigned int bin) {
+    bin_data_->Push(tid, line_idx, bin);
+  }
   inline void FinishLoad() { bin_data_->FinishLoad(); }
   /*! \brief Index of this feature */
   inline int feature_index() const { return feature_index_; }
   /*! \brief Bin mapper that this feature used */
-  inline const BinMapper* bin_mapper() const { return bin_mapper_; }
+  inline const BinMapper* bin_mapper() const { return bin_mapper_.get(); }
   /*! \brief Number of bin of this feature */
   inline int num_bin() const { return bin_mapper_->num_bin(); }
+
+  inline BinType bin_type() const { return bin_mapper_->bin_type(); }
   /*! \brief Get bin data of this feature */
-  inline const Bin* bin_data() const { return bin_data_; }
+  inline const Bin* bin_data() const { return bin_data_.get(); }
   /*!
   * \brief From bin to feature value
   * \param bin
@@ -118,9 +128,9 @@ private:
   /*! \brief Index of this feature */
   int feature_index_;
   /*! \brief Bin mapper that this feature used */
-  BinMapper* bin_mapper_;
+  std::unique_ptr<BinMapper> bin_mapper_;
   /*! \brief Bin data of this feature */
-  Bin* bin_data_;
+  std::unique_ptr<Bin> bin_data_;
   /*! \brief True if this feature is sparse */
   bool is_sparse_;
 };

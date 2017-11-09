@@ -17,6 +17,7 @@
 #include <vector>
 #include <random>
 #include <cmath>
+#include <memory>
 
 namespace LightGBM {
 
@@ -25,11 +26,13 @@ namespace LightGBM {
 */
 class SerialTreeLearner: public TreeLearner {
 public:
-  explicit SerialTreeLearner(const TreeConfig& tree_config);
+  explicit SerialTreeLearner(const TreeConfig* tree_config);
 
   ~SerialTreeLearner();
 
   void Init(const Dataset* train_data) override;
+
+  void ResetConfig(const TreeConfig* tree_config) override;
 
   Tree* Train(const score_t* gradients, const score_t *hessians) override;
 
@@ -37,14 +40,14 @@ public:
     data_partition_->SetUsedDataIndices(used_indices, num_data);
   }
 
-  void AddPredictionToScore(score_t *out_score) const override {
+  void AddPredictionToScore(score_t* out_score) const override {
     #pragma omp parallel for schedule(guided)
     for (int i = 0; i < data_partition_->num_leaves(); ++i) {
-      double output = last_trained_tree_->LeafOutput(i);
-      data_size_t* tmp_idx = nullptr;
-      data_size_t cnt_leaf_data = data_partition_->GetIndexOnLeaf(i, &tmp_idx);
+      score_t output = static_cast<score_t>(last_trained_tree_->LeafOutput(i));
+      data_size_t cnt_leaf_data = 0;
+      auto tmp_idx = data_partition_->GetIndexOnLeaf(i, &cnt_leaf_data);
       for (data_size_t j = 0; j < cnt_leaf_data; ++j) {
-        out_score[tmp_idx[j]] += static_cast<score_t>(output);
+        out_score[tmp_idx[j]] += output;
       }
     }
   }
@@ -108,22 +111,14 @@ protected:
   const score_t* gradients_;
   /*! \brief hessians of current iteration */
   const score_t* hessians_;
-  /*! \brief number of total leaves */
-  int num_leaves_;
-  /*! \brief mininal data on one leaf */
-  data_size_t min_num_data_one_leaf_;
-  /*! \brief mininal sum hessian on one leaf */
-  score_t min_sum_hessian_one_leaf_;
-  /*! \brief sub-feature fraction rate */
-  double feature_fraction_;
   /*! \brief training data partition on leaves */
-  DataPartition* data_partition_;
+  std::unique_ptr<DataPartition> data_partition_;
   /*! \brief used for generate used features */
   Random random_;
-  /*! \brief used for sub feature training, is_feature_used_[i] = falase means don't used feature i */
-  bool* is_feature_used_;
-  /*! \brief cache historical histogram to speed up */
-  FeatureHistogram** historical_histogram_array_;
+  /*! \brief used for sub feature training, is_feature_used_[i] = false means don't used feature i */
+  std::vector<bool> is_feature_used_;
+  /*! \brief pointer to histograms array of parent of current leaves */
+  FeatureHistogram* parent_leaf_histogram_array_;
   /*! \brief pointer to histograms array of smaller leaf */
   FeatureHistogram* smaller_leaf_histogram_array_;
   /*! \brief pointer to histograms array of larger leaf */
@@ -133,32 +128,41 @@ protected:
   std::vector<SplitInfo> best_split_per_leaf_;
 
   /*! \brief stores best thresholds for all feature for smaller leaf */
-  LeafSplits* smaller_leaf_splits_;
+  std::unique_ptr<LeafSplits> smaller_leaf_splits_;
   /*! \brief stores best thresholds for all feature for larger leaf */
-  LeafSplits* larger_leaf_splits_;
+  std::unique_ptr<LeafSplits> larger_leaf_splits_;
 
   /*! \brief gradients of current iteration, ordered for cache optimized */
-  score_t* ordered_gradients_;
+  std::vector<score_t> ordered_gradients_;
   /*! \brief hessians of current iteration, ordered for cache optimized */
-  score_t* ordered_hessians_;
+  std::vector<score_t> ordered_hessians_;
 
   /*! \brief Pointer to ordered_gradients_, use this to avoid copy at BeforeTrain */
-  const score_t* ptr_to_ordered_gradients_;
+  const score_t* ptr_to_ordered_gradients_smaller_leaf_;
   /*! \brief Pointer to ordered_hessians_, use this to avoid copy at BeforeTrain*/
-  const score_t* ptr_to_ordered_hessians_;
+  const score_t* ptr_to_ordered_hessians_smaller_leaf_;
+
+  /*! \brief Pointer to ordered_gradients_, use this to avoid copy at BeforeTrain */
+  const score_t* ptr_to_ordered_gradients_larger_leaf_;
+  /*! \brief Pointer to ordered_hessians_, use this to avoid copy at BeforeTrain*/
+  const score_t* ptr_to_ordered_hessians_larger_leaf_;
   /*! \brief Store ordered bin */
-  std::vector<OrderedBin*> ordered_bins_;
+  std::vector<std::unique_ptr<OrderedBin>> ordered_bins_;
   /*! \brief True if has ordered bin */
   bool has_ordered_bin_ = false;
   /*! \brief  is_data_in_leaf_[i] != 0 means i-th data is marked */
-  char* is_data_in_leaf_;
+  std::vector<char> is_data_in_leaf_;
+  /*! \brief used to cache historical histogram to speed up*/
+  HistogramPool histogram_pool_;
+  /*! \brief config of tree learner*/
+  const TreeConfig* tree_config_;
 };
 
 
 
 inline void SerialTreeLearner::FindBestSplitsForLeaves() {
-  FindBestSplitForLeaf(smaller_leaf_splits_);
-  FindBestSplitForLeaf(larger_leaf_splits_);
+  FindBestSplitForLeaf(smaller_leaf_splits_.get());
+  FindBestSplitForLeaf(larger_leaf_splits_.get());
 }
 
 inline data_size_t SerialTreeLearner::GetGlobalDataCountInLeaf(int leafIdx) const {
